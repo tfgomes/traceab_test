@@ -1,0 +1,108 @@
+# Databricks notebook source
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Traceability APP - Converting</title>
+  <link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="/static/logo.png" alt="Company Logo"
+           style="position:absolute;left:40px;top:50%;transform:translateY(-50%);height:60px;background:rgba(255,255,255,0.95);padding:8px 12px;border-radius:8px;">
+      <div>
+        <h1>Traceability APP</h1>
+        <p>Converting</p>
+      </div>
+    </header>
+
+    <div class="page-nav-wrap">
+      <div class="page-nav">
+        <a href="/">Global Parameters</a>
+        <a href="/converting" class="active">Converting</a>
+        <a href="/product-notification">Product Notification</a>
+        <a href="/upstream">Upstream tracing</a>
+        <a href="/downstream">Downstream tracing</a>
+      </div>
+    </div>
+
+    <div class="table-section">
+      <div class="report-card">
+        <div class="report-title">
+          <span class="report-badge">C1</span>
+          <h2>Converting</h2>
+        </div>
+        <div id="summary" class="params-summary"></div>
+        <div class="filter-actions">
+          <button class="btn btn-primary" onclick="reload()">Refresh this report</button>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div class="table-wrapper">
+        <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+      </div>
+
+      <div class="table-controls">
+        <div class="controls-left">
+          <span id="recordCount" class="record-count">Showing 0 records</span>
+          <div class="page-size-wrap">Rows per page:
+            <select id="pageSize" onchange="changePageSize()">
+              <option value="10" selected>10</option><option value="25">25</option>
+              <option value="50">50</option><option value="100">100</option>
+            </select>
+          </div>
+        </div>
+        <div class="pagination">
+          <button class="btn-small" id="prevBtn" onclick="go(-1)" disabled>← Previous</button>
+          <span id="pageInfo" class="page-info">Page 1</span>
+          <button class="btn-small" id="nextBtn" onclick="go(1)" disabled>Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    const REPORT = REPORTS.find(r => r.id === 'converting');
+    let cache = loadReportCache(REPORT.id);      // results kept from Run Query / previous visits
+
+    function show() {
+      if (!cache) {
+        document.getElementById('thead').innerHTML = '';
+        document.getElementById('tbody').innerHTML = '';
+        setStatus('status', 'ok', 'No results yet. Set parameters on the Global Parameters page and click "Run Query".');
+        return;
+      }
+      renderTable(document.getElementById('thead'), document.getElementById('tbody'), cache.columns, cache.rows);
+      const n = cache.rows.length, page = Math.floor(cache.offset / cache.limit) + 1;
+      document.getElementById('recordCount').textContent = n ? `Showing ${cache.offset + 1} - ${cache.offset + n}${cache.hasMore ? '+' : ' (end)'}` : 'Showing 0 records';
+      document.getElementById('pageInfo').textContent = `Page ${page}`;
+      document.getElementById('prevBtn').disabled = cache.offset === 0;
+      document.getElementById('nextBtn').disabled = !cache.hasMore;
+      document.getElementById('pageSize').value = String(cache.limit);
+      setStatus('status', 'ok', n ? `Showing records ${cache.offset + 1} - ${cache.offset + n}${cache.hasMore ? '+' : ''}` : 'No records found');
+    }
+
+    async function load(offset, limit) {
+      const params = getGlobalParams();
+      if (!params) { setStatus('status', 'err', 'No global parameters set. Go to the Global Parameters page first.'); return; }
+      setStatus('status', 'loading', 'Loading...');
+      const data = await fetchReport(REPORT, params, limit, offset);
+      if (!data.success) { setStatus('status', 'err', `Error: ${data.error}`); return; }
+      cache = { columns: data.columns, rows: data.rows, hasMore: data.has_more, offset, limit };
+      saveReportCache(REPORT.id, cache);
+      show();
+    }
+
+    const reload = () => load(0, cache ? cache.limit : 10);
+    const go = dir => load(Math.max(0, cache.offset + dir * cache.limit), cache.limit);
+    const changePageSize = () => load(0, parseInt(document.getElementById('pageSize').value, 10));
+
+    document.getElementById('summary').textContent = describeParams(getGlobalParams());
+    show();
+  </script>
+</body>
+</html>
