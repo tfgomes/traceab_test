@@ -1,0 +1,19 @@
+# FastAPI and web server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart>=0.0.9
+
+# Databricks connection
+databricks-sql-connector==3.0.3
+databricks-sdk
+
+# Data processing (version compatible with databricks-sql-connector)
+pandas>=1.2.5,<2.2.0
+
+# Configuration management
+pydantic==2.5.3
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# CORS and static files
+aiofiles==23.2.1
