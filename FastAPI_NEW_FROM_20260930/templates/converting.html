@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Traceability APP - Converting</title>
+  <link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <img
+      src="/static/logo.png"
+      alt="Essity logo"
+      style="position:absolute;left:40px;top:50%;transform:translateY(-50%);
+             height:60px;background:white;padding:8px 12px;border-radius:8px;"
+    >
+    <h1>Traceability APP</h1>
+    <p>Converting</p>
+  </header>
+
+  <div class="page-nav-wrap">
+    <div class="page-nav">
+      <a href="/" class="nav-home">⚙ Global Parameters</a>
+      <a href="/converting" class="active">Converting</a>
+      <a href="/product-notification">Product Notification</a>
+      <a href="/upstream">Upstream tracing</a>
+      <a href="/downstream">Downstream tracing</a>
+    </div>
+  </div>
+
+  <div class="table-section">
+    <!-- Small summary of parameters used to generate these reports -->
+    <div class="selected-params">
+      <table>
+        <thead>
+          <tr>
+            <th>Plant ID</th>
+            <th>Production Line</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td id="selectedPlant">—</td>
+            <td id="selectedLine">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="reports"></div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+  const currentParams = getGlobalParams();
+  const currentRunId = getRunId();
+
+  document.getElementById('selectedPlant').textContent =
+    currentParams?.plant_id || '—';
+
+  document.getElementById('selectedLine').textContent =
+    currentParams?.production_line || '—';
+
+  function make(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  REPORTS.forEach(report => {
+    const card = make('section', 'report-card');
+
+    // Blue numbered badge + report name
+    const title = make('div', 'report-title');
+    title.append(
+      make('span', 'report-badge report-number-badge', report.badge),
+      make('h2', '', report.label)
+    );
+    card.appendChild(title);
+
+    // Mandatory-field / SQL errors are shown here per report
+    const status = make('div', 'status');
+    status.setAttribute('role', 'status');
+    card.appendChild(status);
+
+    const wrapper = make('div', 'table-wrapper');
+    const table = make('table');
+    const head = make('thead');
+    const body = make('tbody');
+    table.append(head, body);
+    wrapper.appendChild(table);
+    card.appendChild(wrapper);
+
+    const controls = make('div', 'table-controls');
+
+    const left = make('div', 'controls-left');
+    const count = make('span', 'record-count', 'Showing 0 records');
+
+    const sizeWrap = make('div', 'page-size-wrap');
+    sizeWrap.appendChild(document.createTextNode('Rows per page:'));
+
+    const size = make('select');
+    [10, 25, 50, 100].forEach(number => {
+      size.appendChild(new Option(String(number), String(number)));
+    });
+
+    sizeWrap.appendChild(size);
+    left.append(count, sizeWrap);
+
+    const pager = make('div', 'pagination');
+
+    const previous = make('button', 'btn-small', '← Previous');
+    previous.type = 'button';
+
+    const page = make('span', 'page-info', 'Page 1');
+
+    const next = make('button', 'btn-small', 'Next →');
+    next.type = 'button';
+
+    const refresh = make('button', 'btn-small', 'Refresh');
+    refresh.type = 'button';
+
+    const exportButton = make('button', 'btn btn-export', '⬇ Export CSV');
+    exportButton.type = 'button';
+
+    pager.append(previous, page, next, refresh, exportButton);
+    controls.append(left, pager);
+    card.appendChild(controls);
+
+    document.getElementById('reports').appendChild(card);
+
+    let cache = loadReportCache(report.id);
+    if (cache?.runId !== currentRunId) cache = null;
+
+    let loading = false;
+    let requestSequence = 0;
+
+    function message(kind, text, showGlobalParametersLink = false) {
+      status.className = `status ${kind}`;
+      status.replaceChildren();
+
+      const messageText = make('span', '', text);
+      status.appendChild(messageText);
+
+      if (showGlobalParametersLink) {
+        const link = make(
+          'a',
+          'status-link',
+          ' Go to Global Parameters to complete the required fields.'
+        );
+        link.href = '/';
+        status.appendChild(link);
+      }
+    }
+
+    function hideMessage() {
+      status.className = 'status';
+      status.replaceChildren();
+    }
+
+    function draw() {
+      const hasResult = cache && !cache.error;
+
+      // If mandatory params are missing, show only the message
+      wrapper.style.display = hasResult ? '' : 'none';
+      controls.style.display = hasResult ? '' : 'none';
+
+      if (!hasResult) {
+        head.replaceChildren();
+        body.replaceChildren();
+        return;
+      }
+
+      renderTable(head, body, cache.columns || [], cache.rows || []);
+
+      const numberOfRows = (cache.rows || []).length;
+
+      count.textContent = numberOfRows
+        ? `Showing ${cache.offset + 1} - ${cache.offset + numberOfRows}${cache.hasMore ? '+' : ''}`
+        : 'Showing 0 records';
+
+      page.textContent = `Page ${Math.floor(cache.offset / cache.limit) + 1}`;
+
+      previous.disabled = loading || cache.offset === 0;
+      next.disabled = loading || !cache.hasMore;
+      exportButton.disabled = loading || !hasResult || getRunId() !== currentRunId;
+
+      size.value = String(cache.limit);
+    }
+
+    async function load(offset, limit) {
+      if (loading) return;
+
+      if (!currentParams || !currentRunId) {
+        message('err', 'No report run is available.', true);
+        draw();
+        return;
+      }
+
+      if (getRunId() !== currentRunId) {
+        message('err', 'The global parameters have changed since this page was opened.', true);
+        draw();
+        return;
+      }
+
+      const requestNumber = ++requestSequence;
+      loading = true;
+
+      refresh.disabled = true;
+      previous.disabled = true;
+      next.disabled = true;
+      exportButton.disabled = true;
+
+      message('loading', 'Loading report...');
+
+      try {
+        const data = await fetchReport(report, currentParams, currentRunId, limit, offset);
+
+        // Older response must not overwrite newer request
+        if (requestNumber !== requestSequence || getRunId() !== currentRunId) return;
+
+        if (!data.success) {
+          cache = {
+            runId: currentRunId,
+            error: data.error || 'The report could not be generated.',
+            missing: Boolean(data.missing),
+            cancelled: Boolean(data.cancelled),
+          };
+
+          saveReportCache(report.id, cache);
+          message('err', cache.error, cache.missing);
+          return;
+        }
+
+        cache = {
+          runId: currentRunId,
+          columns: data.columns,
+          rows: data.rows,
+          hasMore: data.has_more,
+          offset,
+          limit,
+        };
+
+        saveReportCache(report.id, cache);
+
+        if ((data.rows || []).length === 0) {
+          message('ok', 'The report ran successfully, but no records matched the selected parameters.');
+        } else {
+          hideMessage();
+        }
+      } catch (error) {
+        cache = {
+          runId: currentRunId,
+          error: error.message || String(error),
+          missing: false,
+        };
+
+        saveReportCache(report.id, cache);
+        message('err', `The report could not be generated: ${cache.error}`);
+      } finally {
+        loading = false;
+        refresh.disabled = false;
+        draw();
+      }
+    }
+
+    refresh.onclick = () => {
+      const limit = cache && !cache.error ? cache.limit : Number(size.value) || 10;
+      load(0, limit);
+    };
+
+    size.onchange = () => {
+      load(0, Number(size.value));
+    };
+
+    previous.onclick = () => {
+      if (!cache || cache.error) return;
+      load(Math.max(0, cache.offset - cache.limit), cache.limit);
+    };
+
+    next.onclick = () => {
+      if (!cache || cache.error || !cache.hasMore) return;
+      load(cache.offset + cache.limit, cache.limit);
+    };
+
+    exportButton.onclick = async () => {
+      if (!currentParams || !currentRunId || getRunId() !== currentRunId) {
+        message('err', 'These parameters have changed. Run the reports again.');
+        return;
+      }
+
+      exportButton.disabled = true;
+      message('loading', 'Preparing CSV export...');
+
+      try {
+        const response = await fetch(`/api/converting/export/${report.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            run_id: currentRunId,
+            params: currentParams,
+            limit: 10,
+            offset: 0,
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || `Export failed (HTTP ${response.status}).`);
+        }
+
+        if (getRunId() !== currentRunId) {
+          message('err', 'Parameters changed while exporting. Download discarded.');
+          return;
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `converting_${report.id}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+        if (cache?.rows?.length) hideMessage();
+        else message('ok', 'CSV exported.');
+      } catch (error) {
+        message('err', error.message || String(error));
+      } finally {
+        draw();
+      }
+    };
+
+    // Initial state
+    draw();
+
+    if (!currentParams || !currentRunId) {
+      message('ok', 'No results yet. Set the parameters on the Global Parameters page and click Run Query.');
+    } else if (cache?.error) {
+      message('err', cache.error, cache.missing);
+    } else if (cache) {
+      if ((cache.rows || []).length === 0) {
+        message('ok', 'The report ran successfully, but no records matched the selected parameters.');
+      } else {
+        hideMessage();
+      }
+    } else {
+      message('ok', 'No result is available for this report. Return to Global Parameters and click Run Query.');
+    }
+  });
+</script>
+</body>
+</html>
