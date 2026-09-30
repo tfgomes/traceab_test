@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Traceability APP - Global Parameters</title>
+  <link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <img src="/static/logo.png" alt="Essity logo"
+         style="position:absolute;left:40px;top:50%;transform:translateY(-50%);height:60px;background:white;padding:8px 12px;border-radius:8px;">
+    <h1>Traceability APP</h1>
+    <p>Global Query Parameters</p>
+  </header>
+  <div class="page-nav-wrap"><div class="page-nav">
+    <a href="/" class="nav-home active">⚙ Global Parameters</a>
+    <a href="/converting">Converting</a>
+    <a href="/product-notification">Product Notification</a>
+    <a href="/upstream">Upstream tracing</a>
+    <a href="/downstream">Downstream tracing</a>
+  </div></div>
+
+  <div class="table-section">
+    <div id="sections"></div>
+    <div class="filter-actions">
+      <button id="runBtn" class="btn btn-primary" type="button">Run Query</button>
+      <button id="stopBtn" class="btn btn-danger" type="button" disabled>Stop query</button>
+      <button id="clearBtn" class="btn btn-secondary" type="button">Clear All</button>
+    </div>
+    <div id="runStatus" class="status" style="margin-top:12px;"></div>
+    <div id="reportStatusList" class="report-status-list"></div>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+  const controls = {};
+  let generation = 0;
+  let running = false;
+
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function multiControl(field, target) {
+    let values = [];
+    const box = element('div', 'chip-box');
+    const input = element('input');
+    input.type = 'text';
+    input.placeholder = 'Enter values separated by commas';
+    box.appendChild(input);
+    target.appendChild(box);
+
+    function draw() {
+      box.querySelectorAll('.chip').forEach(chip => chip.remove());
+      values.forEach(value => {
+        const chip = element('span', 'chip', value);
+        const remove = element('button', 'chip-x', '×');
+        remove.type = 'button';
+        remove.onclick = () => { values = values.filter(v => v !== value); draw(); };
+        chip.appendChild(remove);
+        box.insertBefore(chip, input);
+      });
+    }
+    function commit() {
+      input.value.split(/[,;\n]/).map(s => s.trim()).filter(Boolean).forEach(value => {
+        if (!values.includes(value)) values.push(value);
+      });
+      input.value = '';
+      draw();
+    }
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter') { event.preventDefault(); commit(); }
+      if (event.key === 'Backspace' && !input.value && values.length) { values.pop(); draw(); }
+    });
+    input.addEventListener('blur', commit);
+    input.addEventListener('input', () => { if (/[,;\n]/.test(input.value)) commit(); });
+
+    controls[field.key] = {
+      commit,
+      get: () => ({ values: [...values] }),
+      set: stored => { values = Array.isArray(stored?.values) ? [...stored.values] : []; draw(); },
+      reset: () => { values = []; input.value = ''; draw(); },
+    };
+  }
+
+  function selectControl(field, target) {
+    const select = element('select');
+    select.appendChild(new Option('Any', ''));
+    target.appendChild(select);
+    const listeners = [];
+    let sequence = 0;
+    let restored = null;
+
+    async function load(parentValue, keepRestored) {
+      const ticket = ++sequence;
+      const query = field.dependsOn && parentValue
+        ? `?${field.dependsOn}=${encodeURIComponent(parentValue)}` : '';
+      try {
+        const data = await (await fetch(field.source + query)).json();
+        if (ticket !== sequence) return;
+        select.replaceChildren(new Option('Any', ''));
+        (data.values || []).forEach(v => select.appendChild(new Option(v, v)));
+        const wanted = keepRestored ? restored : null;
+        select.value = wanted && [...select.options].some(o => o.value === wanted) ? wanted : '';
+        restored = null;
+        if (data.error) console.warn(field.label, data.error);
+      } catch (error) {
+        console.warn('Could not load', field.label, error);
+      }
+    }
+
+    select.addEventListener('change', () => listeners.forEach(cb => cb(select.value)));
+
+    controls[field.key] = {
+      commit: () => {},
+      get: () => select.value || null,
+      set: value => {
+        restored = value || null;
+        load(field.dependsOn ? controls[field.dependsOn].get() : null, true);
+      },
+      reset: () => {
+        restored = null;
+        select.value = '';
+        listeners.forEach(cb => cb(''));
+      },
+      onChange: cb => listeners.push(cb),
+    };
+
+    if (field.dependsOn) controls[field.dependsOn].onChange(value => load(value, false));
+    else load(null, false);
+  }
+
+  function dateControl(field, target) {
+    const input = element('input');
+    input.type = 'date';
+    target.appendChild(input);
+    controls[field.key] = {
+      commit: () => {},
+      get: () => input.value || null,
+      set: value => { input.value = value || ''; },
+      reset: () => { input.value = ''; },
+    };
+  }
+
+  SECTIONS.forEach(section => {
+    const card = element('div', 'report-card');
+    const title = element('div', 'report-title');
+    title.append(element('span', 'report-badge', section.badge), element('h2', '', section.title));
+    card.appendChild(title);
+    const grid = element('div', 'param-grid');
+    section.fields.forEach(field => {
+      const cell = element('div', 'param-cell');
+      if (field.newRow) cell.style.gridColumnStart = '1';
+      const control = element('div', 'param-ctl');
+      if (field.type === 'multi') multiControl(field, control);
+      if (field.type === 'select') selectControl(field, control);
+      if (field.type === 'date') dateControl(field, control);
+      cell.append(element('label', 'param-label', field.label), control);
+      grid.appendChild(cell);
+    });
+    card.appendChild(grid);
+    document.getElementById('sections').appendChild(card);
+  });
+
+  function collect() {
+    const result = {};
+    SECTIONS.forEach(s => s.fields.forEach(f => {
+      controls[f.key].commit();
+      result[f.key] = controls[f.key].get();
+    }));
+    return result;
+  }
+
+  async function restore(params) {
+    if (!params) return;
+    // Plant first, so the production-line list is loaded for the right plant.
+    await controls.plant_id.set(params.plant_id);
+    controls.production_line.set(params.production_line);
+    SECTIONS.forEach(s => s.fields.forEach(f => {
+      if (!['plant_id', 'production_line'].includes(f.key)) controls[f.key].set(params[f.key]);
+    }));
+  }
+
+  function setRunning(value) {
+    running = value;
+    document.getElementById('runBtn').disabled = value;
+    document.getElementById('stopBtn').disabled = !value;
+  }
+
+  async function runQuery() {
+    if (running) return;
+    const params = collect();
+    if (params.production_date_from && params.production_date_to &&
+        params.production_date_from > params.production_date_to) {
+      setStatus('runStatus', 'err', 'Production date FROM cannot be after TO.');
+      return;
+    }
+
+    const ticket = ++generation;
+    setRunning(true);
+    setStatus('runStatus', 'loading', 'Running reports...');
+    try {
+      const previousRun = getRunId();
+      if (previousRun) { try { await stopRun(previousRun); } catch (_) { /* expired */ } }
+      const runId = await startRun();
+      if (ticket !== generation) { await stopRun(runId); return; }
+      saveGlobalParams(params, runId);
+
+      const list = document.getElementById('reportStatusList');
+      list.replaceChildren();
+      const lines = REPORTS.map(r => {
+        const line = element('div', 'report-status-item', `${r.label}: loading...`);
+        list.appendChild(line);
+        return line;
+      });
+
+      let ok = 0;
+      await Promise.all(REPORTS.map(async (report, i) => {
+        const data = await fetchReport(report, params, runId, 10, 0);
+        if (ticket !== generation || getRunId() !== runId) return;
+        if (data.success) {
+          ok++;
+          saveReportCache(report.id, {
+            runId, columns: data.columns, rows: data.rows,
+            hasMore: data.has_more, offset: 0, limit: 10,
+          });
+          lines[i].textContent = `✔ ${report.label}: ${data.rows.length}${data.has_more ? '+' : ''} rows loaded`;
+        } else {
+          // Keep the reason, so the Converting page can show it under that report.
+          saveReportCache(report.id, { runId, error: data.error, missing: !!data.missing });
+          lines[i].textContent = `✖ ${report.label}: ${data.error}`;
+          lines[i].classList.add('report-error');
+        }
+      }));
+
+      if (ticket === generation) {
+        setStatus('runStatus', ok === REPORTS.length ? 'ok' : 'err',
+          ok === REPORTS.length
+            ? 'All reports loaded. Open Converting to see the results.'
+            : `${ok} of ${REPORTS.length} reports loaded. Open Converting to see the results.`);
+      }
+    } catch (error) {
+      if (ticket === generation) setStatus('runStatus', 'err', `Error: ${error.message || error}`);
+    } finally {
+      if (ticket === generation) setRunning(false);
+    }
+  }
+
+  async function stopQuery() {
+    if (!running) return;
+    ++generation;
+    setRunning(false);
+    const runId = getRunId();
+    clearReportCaches();
+    setStatus('runStatus', 'loading', 'Stopping the queries...');
+    try {
+      const result = await stopRun(runId);
+      setStatus('runStatus', result?.errors?.length ? 'err' : 'ok',
+        result?.errors?.length
+          ? `Stop requested, but some queries could not be cancelled: ${result.errors.join('; ')}`
+          : 'Stop requested. Reports not yet started will not run; running queries may take a moment to stop.');
+    } catch (error) {
+      setStatus('runStatus', 'err', `Could not stop the queries: ${error.message || error}`);
+    }
+  }
+
+  async function clearAll() {
+    ++generation;
+    const runId = getRunId();
+    if (runId) { try { await stopRun(runId); } catch (_) { /* expired */ } }
+    SECTIONS.forEach(s => s.fields.forEach(f => controls[f.key].reset()));
+    clearGlobalParams();
+    document.getElementById('reportStatusList').replaceChildren();
+    setRunning(false);
+    setStatus('runStatus', 'ok', 'Parameters and results cleared.');
+  }
+
+  document.getElementById('runBtn').onclick = runQuery;
+  document.getElementById('stopBtn').onclick = stopQuery;
+  document.getElementById('clearBtn').onclick = clearAll;
+  restore(getGlobalParams());
+  setStatus('runStatus', 'ok', 'Set the parameters and click "Run Query".');
+</script>
+</body>
+</html>
