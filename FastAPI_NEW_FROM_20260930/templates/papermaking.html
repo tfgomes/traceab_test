@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Traceability APP - DEV - Papermaking</title>
+  <link rel="stylesheet" href="/static/common.css?v=sprint3-ui-6">
+  <script src="/static/common.js?v=sprint3-ui-6" defer></script>
+  <script src="/static/params_panel.js?v=sprint3-ui-6" defer></script>
+  <script src="/static/report_page.js?v=sprint3-ui-6" defer></script>
+</head>
+<body data-report-profile="pm">
+<div class="container">
+  <header>
+    <img src="/static/logo.png" alt="Essity logo"
+         style="position:absolute;left:40px;top:50%;transform:translateY(-50%);height:60px;background:white;padding:8px 12px;border-radius:8px;">
+    <div class="app-version" id="appVersion" title="Working version of the app">Version: Sprint 3</div>
+    <h1>Traceability APP – DEV</h1>
+    <p>Papermaking</p>
+  </header>
+
+  <nav class="page-nav-wrap" aria-label="Main navigation">
+    <div class="page-nav">
+      <a href="/papermaking" class="active" aria-current="page">Papermaking</a>
+      <a href="/converting">Converting</a>
+      <a href="/tab1">TAB1</a>
+      <a href="/tab2">TAB2</a>
+      <a href="/tab3">TAB3</a>
+      <a href="/tab4">TAB4</a>
+      <a href="/tab5">TAB5</a>
+    </div>
+    <div class="sync-toolbar" id="syncToolbar"></div>
+  </nav>
+
+  <main class="table-section">
+    <div id="pageError" class="status" role="alert"></div>
+
+    <!-- Global parameters: identical on every page, built by params_panel.js -->
+    <section class="report-card gp-top">
+      <div class="gp-card-title">
+        <h2 style="color:var(--navy);font-size:1.02rem;">Global Parameters</h2>
+      </div>
+      <div id="sections"></div>
+
+      <div class="filter-actions">
+        <button id="runBtn" class="btn btn-primary" type="button">Run Query</button>
+        <button id="stopBtn" class="btn btn-danger" type="button" disabled>Stop Query</button>
+        <button id="clearBtn" class="btn btn-secondary" type="button">Clear All</button>
+      </div>
+      <div id="lastRunLabel" class="last-run">Last run: -</div>
+      <div id="runStatus" class="status" style="margin-top:10px;"></div>
+    </section>
+
+    <!-- P1 placeholder -->
+    <section class="report-card">
+      <div class="report-title">
+        <span class="report-badge report-number-badge">P1</span>
+        <h2>Raw material consumption</h2>
+      </div>
+      <p class="section-description">P1 reserved. Dataset mapping to be finalized in configuration.</p>
+    </section>
+
+    <div id="reports"></div>
+  </main>
+</div>
+
+<script>
+  window.addEventListener("load", () => {
+    window.TraceabilityParamsPanel.mount({ profile: "pm", page: window.TraceabilityPhaseB.PAGE_PAPERMAKING });
+  });
+</script>
+</body>
+</html>
